@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<form name="currenciesForm" method="post" enctype="multipart/form-data" onsubmit="return validateForm()">
+    Exchange rates:
+    <div id="currencies">
+            {{#currencies}}
+                <label for="currency-{{.}}">{{.}}</label>
+                <input type="number" id="currency-{{.}}" name="currency-{{.}}" step="0.01" min="0" max="1000" class="currency"><br \>
+            {{/currencies}}
+    </div>
+    <br \>
+    Select CSV file to upload:
+    <input type="file" name="fileToUpload" id="fileToUpload">
+    <br \>
+    <br \>
+    <br \>
+    <input type="submit" value="Submit" name="submit">
+</form>
+
+<script>
+function validateForm() {
+    var currencies = [
+        {{#currencies}}
+        "{{.}}",
+        {{/currencies}}
+    ];
+    var currencies = document.getElementsByClassName("currency");
+    var main = 0;
+    for (var i = 0; i < currencies.length; i++) {
+        let val = parseFloat(currencies[i].value);
+        if (val > 0.99 && val < 1.01)
+        {
+            main++;
+        }
+    }
+    if (main != 1 ) {
+        alert("There should be one and only one currency with exchange rate 1");
+        return false;
+    }
+}
+</script>
+
+</body>
+</html>

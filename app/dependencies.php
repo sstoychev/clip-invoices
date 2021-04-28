@@ -25,5 +25,9 @@ return function (ContainerBuilder $containerBuilder) {
 
             return $logger;
         },
+        'mustache' => function (ContainerInterface $c) {
+            $mustache = new Mustache_Engine();
+            return $mustache;
+        }
     ]);
 };

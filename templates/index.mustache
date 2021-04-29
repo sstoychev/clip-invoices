@@ -3,19 +3,32 @@
 <body>
 
 <form name="currenciesForm" method="post" enctype="multipart/form-data" onsubmit="return validateForm()">
-    Exchange rates:
-    <div id="currencies">
+
+    <label for="currencies">Exchange rates:</label>
+    <div id="currencies" name="currencies">
             {{#currencies}}
                 <label for="currency-{{.}}">{{.}}</label>
                 <input type="number" id="currency-{{.}}" name="currency-{{.}}" step="0.01" min="0" max="1000" class="currency"><br \>
             {{/currencies}}
     </div>
     <br \>
-    Select CSV file to upload:
-    <input type="file" name="fileToUpload" id="fileToUpload">
+
+    <label for="output_currency">Output currency:</label>
+    <select name="output_currency" id="output_currency" required>
+        {{#currencies}}
+            <option value="{{.}}">{{.}}</option>
+        {{/currencies}}
+    </select>
+    <br \>
+
+    <label for="fileToUpload">Select CSV file to upload:</label>
+    <input type="file" name="fileToUpload" id="fileToUpload" required>
     <br \>
     <br \>
     <br \>
+    <label for="customer_filter">Filter one customer</label>
+    <input type="text" id="customer_filter" name="customer_filter"><br \>
+
     <input type="submit" value="Submit" name="submit">
 </form>
 

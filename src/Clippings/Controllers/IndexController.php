@@ -65,27 +65,79 @@ class IndexController extends Base
      */
     public function indexPost($request, $response, $args)
     {
+        $params = $request->getParsedBody();
+        list($errors, $exchangeRates) = $this->validateParams($params);
+
+        if (!empty($errors)) {
+            $response->getBody()->write('Error: ' . implode(',', $errors));
+            return $response;
+        }
+
         $uploadedFiles = $request->getUploadedFiles();
         $uploadedFile = $uploadedFiles['fileToUpload'];
-        $output = 'ERROR';
-        if ($uploadedFile->getError() === UPLOAD_ERR_OK) {
-            $fileContent =  array_map('str_getcsv', file($_FILES['fileToUpload']['tmp_name']));
-            $output = '<pre>'.print_r($fileContent, true).'</pre><br />';
-            $headers = $fileContent[0];
-            // validate the file
-            list($missingHeaders, $headerIndexes) = $this->validateHeaders($headers);
-            if ($missingHeaders) {
-                $output .= 'ERROR: missing columns:'.implode(',', $missingHeaders);
-            }
-            $missingParents = $this->validateParent($fileContent, $headerIndexes);
-            $missingCurrencies = $this->validateCurrencies($fileContent, $headerIndexes);
-            // check if we are good to go
-            if (!$missingHeaders && !$missingParents && !$missingCurrencies) {
-                $this->calcTotal($fileContent, $headerIndexes);
-            }
+        if ($uploadedFile->getError() !== UPLOAD_ERR_OK) {
+            $response->getBody()->write('Error: No file uploaded');
+            return $response;
         }
+
+        $output = '';
+        global $app;
+        $container = $app->getContainer();
+        $settings = $container->get(SettingsInterface::class);
+        $requiredHeaders = $settings->get('csv_headers');
+        $currencies = $settings->get('currencies');
+
+        $fileContent =  array_map('str_getcsv', file($_FILES['fileToUpload']['tmp_name']));
+        $headers = $fileContent[0];
+        unset($fileContent[0]); // remove the fist element with the headers so we have only data
+
+        // validate the file
+        list($missingHeaders, $headerIndexes) = $this->validateHeaders($headers, $requiredHeaders);
+        if (!empty($missingHeaders)) {
+            $response->getBody()->write('Error: ' . implode(',', $missingHeaders));
+            return $response;
+        }
+
+        $dataErrors = $this->validateData($fileContent, $headerIndexes, $currencies);
+        if (!empty($dataErrors)) {
+            $response->getBody()->write('Error: ' . implode(',', $dataErrors));
+            return $response;
+        }
+
+        // check if we are good to go
+        $total = $this->calcTotal($fileContent, $headerIndexes, $params, $exchangeRates);
+        $output = $total . ' ' . $params['output_currency'];
         $response->getBody()->write($output);
         return $response;
+    }
+    private function validateParams($params)
+    {
+        $errors = [];
+        if (!isset($params['output_currency']) || !$params['output_currency']) {
+            $errors[] = ' Output currency is required';
+        }
+        // validate currencies
+        $exchangeRates = [];
+        $currencyPrefix = 'currency-';
+        $prefixLen = strlen($currencyPrefix);
+        $mainCurrency = 0;
+        foreach ($params as $key => $value) {
+            if (substr($key, 0, $prefixLen) == $currencyPrefix) {
+                $floatVal = floatval($value);
+                if ($floatVal == 0) {
+                    $errors[] = 'Incorrect value for '.$key;
+                }
+                if ($floatVal > 0.99 && $floatVal < 1.01) {
+                    $mainCurrency++;
+                }
+                $exchangeRates[substr($key, $prefixLen)] = $floatVal;
+            }
+        }
+
+        if ($mainCurrency != 1) {
+            $errors[] = 'There should be one and only one currency with exchange rate 1';
+        }
+        return [$errors, $exchangeRates];
     }
     /**
      * Validate if all required headers are present
@@ -94,22 +146,19 @@ class IndexController extends Base
      *
      * @return array
      */
-    private function validateHeaders($headers)
+    private function validateHeaders($headers, $requiredHeaders)
     {
-        global $app;
-        $container = $app->getContainer();
-        $settings = $container->get(SettingsInterface::class);
-        $requiredHeaders = $settings->get('csv_headers');
-
         $missing = [];
         $headerIndexes = [];
         foreach ($requiredHeaders as $header) {
             $index = array_search($header, $headers);
             if ($index === false) {
                 $missing[] = $header;
+            } else {
+                $headerIndexes[$header] = $index;
             }
         }
-        return ['missing' => $missing, 'headerIndexes' => $headerIndexes];
+        return [$missing, $headerIndexes];
     }
     /**
      * Validate if all parents are correct
@@ -118,35 +167,65 @@ class IndexController extends Base
      *
      * @return array
      */
-    private function validateParent($fileContent, $headerIndexes)
+    private function validateData($fileContent, $headerIndexes, $currencies)
     {
-        return []; // TODO(Stoycho)
-    }
-    /**
-     * Validate if all parents are correct
-     *
-     * @param array $headers -
-     *
-     * @return array
-     */
-    private function validateCurrencies($fileContent, $headerIndexes)
-    {
-        return []; // TODO(Stoycho)
+        $currencyColumn  = $headerIndexes['Currency'];
+        $documentColumn = $headerIndexes['Document number'];
+        $parentColumn = $headerIndexes['Parent document'];
+
+        $dataErrors = [];
+        $documents = [];
+        $parentDocuments = [];
+        foreach ($fileContent as $line) {
+            $currency = $line[$currencyColumn];
+            $document = $line[$documentColumn];
+            $parentDocument = $line[$parentColumn];
+
+            if (!in_array($currency, $currencies)) {
+                $dataErrors[] = ' Unknown currency' . $currency;
+            }
+            $documents[] = $document;
+
+            if ($parentDocument != '') {
+                $parentDocuments[] = $parentDocument;
+            }
+        }
+        if (count(array_intersect($parentDocuments, $documents)) != count($parentDocuments)) {
+            $dataErrors[] = 'Invalid parent fields';
+        }
+
+        return $dataErrors;
     }
 
-    private function calcTotal($fileContent, $headerIndexes)
+    private function calcTotal($fileContent, $headerIndexes, $params, $exchangeRates)
     {
+        $customerFilter = $params['customer_filter'];
+        $outputCurrency = $params['output_currency'];
+
         $typeInvoice = 1; // constant
         $typeCredit = 2; // constant
         $typeDebit = 3; // constant
         $typeColumn  = $headerIndexes['Type'];
         $totalColumn = $headerIndexes['Total'];
-        $total = 0;
-        for ($i=1; $i<count($fileContent); $i++) {
-            if ($fileContent[$i][$typeColumn] == $typeInvoice) {
-                $total += (float) $fileContent[$i][$totalColumn];
+        $vatColumn = $headerIndexes['Vat number'];
+        $currencyColumn = $headerIndexes['Currency'];
+        $total = 0; // total in default currency
+        foreach ($fileContent as $line) {
+            if ($customerFilter && $line[$vatColumn] != $customerFilter) {
+                continue;
             }
+            // depending on the document we will add or substract
+            $typeCoef = 1;
+            if ($line[$typeColumn] == $typeCredit) {
+                $typeCoef = -1;
+            }
+            // get the exchange rate to the default currency
+            $currncyCoef = $exchangeRates[$line[$currencyColumn]];
+            $total += ($typeCoef * $currncyCoef * (float) $line[$totalColumn]);
         }
+
+        // convert total to the output currency
+        $total *= $exchangeRates[$outputCurrency];
         $output = 'Total:'. $total;
         return $output;
     }

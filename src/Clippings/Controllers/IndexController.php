@@ -16,6 +16,7 @@
 namespace App\Clippings\Controllers;
 
 use App\Application\Settings\SettingsInterface;
+use App\Clippings\Constants\Constants as C;
 use Slim\Psr7\Response;
 
 /**
@@ -49,6 +50,10 @@ class IndexController extends Base
         $currencies = $settings->get('currencies');
         $data = [
             'currencies' => $currencies,
+            'currency_prefix' => C::CURRNECY_PREFIX,
+            'output_currency' => C::OUTPUT_CURRENCY,
+            'fileToUpload' => C::FILE_TO_UPLOAD,
+            'customer_filter' => C::CUSTOMER_FILTER,
         ];
         $this->data = $data;
         $response->getBody()->write($this->render());
@@ -74,7 +79,7 @@ class IndexController extends Base
         }
 
         $uploadedFiles = $request->getUploadedFiles();
-        $uploadedFile = $uploadedFiles['fileToUpload'];
+        $uploadedFile = $uploadedFiles[C::FILE_TO_UPLOAD];
         if ($uploadedFile->getError() !== UPLOAD_ERR_OK) {
             $response->getBody()->write('Error: No file uploaded');
             return $response;
@@ -87,7 +92,7 @@ class IndexController extends Base
         $requiredHeaders = $settings->get('csv_headers');
         $currencies = $settings->get('currencies');
 
-        $fileContent =  array_map('str_getcsv', file($_FILES['fileToUpload']['tmp_name']));
+        $fileContent =  array_map('str_getcsv', file($_FILES[C::FILE_TO_UPLOAD]['tmp_name']));
         $headers = $fileContent[0];
         unset($fileContent[0]); // remove the fist element with the headers so we have only data
 
@@ -106,14 +111,21 @@ class IndexController extends Base
 
         // check if we are good to go
         $total = $this->calcTotal($fileContent, $headerIndexes, $params, $exchangeRates);
-        $output = $total . ' ' . $params['output_currency'];
+        $output = $total . ' ' . $params[C::OUTPUT_CURRENCY];
         $response->getBody()->write($output);
         return $response;
     }
+    /**
+     * Validate the post parameters
+     *
+     * @param array $params -
+     *
+     * @return array
+     */
     private function validateParams($params)
     {
         $errors = [];
-        if (!isset($params['output_currency']) || !$params['output_currency']) {
+        if (!isset($params[C::OUTPUT_CURRENCY]) || !$params[C::OUTPUT_CURRENCY]) {
             $errors[] = ' Output currency is required';
         }
         // validate currencies
@@ -169,9 +181,9 @@ class IndexController extends Base
      */
     private function validateData($fileContent, $headerIndexes, $currencies)
     {
-        $currencyColumn  = $headerIndexes['Currency'];
-        $documentColumn = $headerIndexes['Document number'];
-        $parentColumn = $headerIndexes['Parent document'];
+        $currencyColumn  = $headerIndexes[C::COLUMN_CURRENCY];
+        $documentColumn = $headerIndexes[C::COLUMN_DOCUMENT];
+        $parentColumn = $headerIndexes[C::COLUMN_PARENT];
 
         $dataErrors = [];
         $documents = [];
@@ -199,16 +211,13 @@ class IndexController extends Base
 
     private function calcTotal($fileContent, $headerIndexes, $params, $exchangeRates)
     {
-        $customerFilter = $params['customer_filter'];
-        $outputCurrency = $params['output_currency'];
+        $customerFilter = $params[C::CUSTOMER_FILTER];
+        $outputCurrency = $params[C::OUTPUT_CURRENCY];
 
-        $typeInvoice = 1; // constant
-        $typeCredit = 2; // constant
-        $typeDebit = 3; // constant
-        $typeColumn  = $headerIndexes['Type'];
-        $totalColumn = $headerIndexes['Total'];
-        $vatColumn = $headerIndexes['Vat number'];
-        $currencyColumn = $headerIndexes['Currency'];
+        $typeColumn  = $headerIndexes[C::COLUMN_TYPE];
+        $totalColumn = $headerIndexes[C::COLUMN_TOTAL];
+        $vatColumn = $headerIndexes[C::COLUMN_VAT];
+        $currencyColumn = $headerIndexes[C::COLUMN_CURRENCY];
         $total = 0; // total in default currency
         foreach ($fileContent as $line) {
             if ($customerFilter && $line[$vatColumn] != $customerFilter) {
@@ -216,7 +225,7 @@ class IndexController extends Base
             }
             // depending on the document we will add or substract
             $typeCoef = 1;
-            if ($line[$typeColumn] == $typeCredit) {
+            if ($line[$typeColumn] == C::TYPE_CREDIT) {
                 $typeCoef = -1;
             }
             // get the exchange rate to the default currency

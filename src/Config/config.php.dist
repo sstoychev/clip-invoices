@@ -30,4 +30,13 @@ return [
         'GBP',
         'BGN',
     ],
+    'csv_headers' => [
+        C::COLUMN_CUSTOMER,
+        C::COLUMN_VAT,
+        C::COLUMN_DOCUMENT,
+        C::COLUMN_TYPE,
+        C::COLUMN_PARENT,
+        C::COLUMN_CURRENCY,
+        C::COLUMN_TOTAL,
+    ],
 ];

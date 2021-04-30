@@ -79,8 +79,8 @@ class IndexController extends Base
         }
 
         $uploadedFiles = $request->getUploadedFiles();
-        $uploadedFile = $uploadedFiles[C::FILE_TO_UPLOAD];
-        if ($uploadedFile->getError() !== UPLOAD_ERR_OK) {
+        if (!isset($uploadedFiles[C::FILE_TO_UPLOAD]) ||
+            $uploadedFiles[C::FILE_TO_UPLOAD]->getError() !== UPLOAD_ERR_OK) {
             $response->getBody()->write('Error: No file uploaded');
             return $response;
         }
